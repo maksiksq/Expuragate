@@ -1,3 +1,14 @@
+use std::{collections::HashSet};
+use sysinfo::{
+    System
+};
+use windows::{
+    Win32::Foundation::{HWND, LPARAM, WPARAM},
+    Win32::UI::WindowsAndMessaging::{PostMessageW, FindWindowW, WM_CLOSE},
+};
+
+
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -7,6 +18,15 @@ pub struct TemplateApp {
 
     #[serde(skip)] // This how you opt-out of serialization of a field
     value: f32,
+
+    #[serde(skip)]
+    sys: System,
+
+    #[serde(skip)]
+    whitelist: HashSet<String>,
+
+    #[serde(skip)]
+    whitelist_input: String,
 }
 
 impl Default for TemplateApp {
@@ -15,6 +35,9 @@ impl Default for TemplateApp {
             // Example stuff:
             label: "Hello World!".to_owned(),
             value: 2.7,
+            sys: System::new_all(),
+            whitelist: HashSet::new(),
+            whitelist_input: String::new(),
         }
     }
 }
@@ -67,12 +90,41 @@ impl eframe::App for TemplateApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
-            ui.heading("eframe template");
+            ui.heading("Whitelist");
+
+            ui.horizontal(|ui| {
+                ui.label("Add to whitelist");
+                ui.text_edit_singleline(&mut self.whitelist_input);
+            });
+
+            if ui.button("Add").clicked() {
+                let item = self.whitelist_input.trim();
+                if !item.is_empty() {
+                    self.whitelist.insert(item.to_string());
+                    self.whitelist_input.clear();
+                }
+            }
+
+            ui.separator();
+
+
+            ui.label("Whitelist in question:");
+            for item in &self.whitelist {
+                ui.label(format!("- {}", item));
+            }
+
+
+            ui.separator();
+
+            if ui.button("Say hi").clicked() {
+                println!("Say hi");
+            }
 
             ui.horizontal(|ui| {
                 ui.label("Write something: ");
                 ui.text_edit_singleline(&mut self.label);
             });
+
 
             ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
             if ui.button("Increment").clicked() {
