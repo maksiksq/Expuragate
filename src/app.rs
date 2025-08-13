@@ -6,6 +6,7 @@ use windows::core::{Result, BOOL};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, GWL_STYLE, GW_OWNER, WM_CLOSE, WS_CHILD};
 
+// closing an app by its process id
 #[allow(unsafe_code)]
 pub fn close_by_pid(target_pid: u32) -> Result<()> {
     fn is_top_level(hwnd: HWND) -> bool {
@@ -49,6 +50,13 @@ pub fn close_by_pid(target_pid: u32) -> Result<()> {
     }
     Ok(())
 }
+
+//
+// Tomorrow me:
+// Take the current processes, sort the duplicates into one entry and then find top level
+// (instead of the registry and parts (cause paths can change))
+//
+// pub fn get_list_available_apps
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
