@@ -1,13 +1,6 @@
 use std::{collections::HashSet};
-use sysinfo::{
-    System
-};
-use windows::{
-    Win32::Foundation::{HWND, LPARAM, WPARAM},
-    Win32::UI::WindowsAndMessaging::{PostMessageW, FindWindowW, WM_CLOSE},
-};
-
-
+use egui::UiKind::ScrollArea;
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -115,6 +108,32 @@ impl eframe::App for TemplateApp {
 
 
             ui.separator();
+            ui.label("Running processes");
+
+            self.sys.refresh_processes_specifics(
+                ProcessesToUpdate::All,
+                true,
+                ProcessRefreshKind::everything().without_tasks(),
+            );
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("PID");
+                    ui.label("Process Name");
+                });
+
+                for (pid, process) in self.sys.processes() {
+                    ui.horizontal(|ui| {
+                        ui.label(pid.to_string());
+                        ui.label(process.name().to_string_lossy());
+                    });
+                }
+
+            });
+
+
+            ui.separator();
+
 
             if ui.button("Say hi").clicked() {
                 println!("Say hi");
