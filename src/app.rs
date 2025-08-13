@@ -2,6 +2,80 @@ use std::{collections::HashSet};
 use egui::UiKind::ScrollArea;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 
+use windows::core::{Result, BOOL};
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, GWL_STYLE, GW_OWNER, WM_CLOSE, WS_CHILD};
+
+#[allow(unsafe_code)]
+pub fn close_by_pid(target_pid: u32) -> Result<()> {
+    fn is_top_level(hwnd: HWND) -> bool {
+        unsafe {
+            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+
+            let has_no_parent = match GetParent(hwnd) {
+                Ok(h) => h.0.is_null(),
+                Err(_) => true,
+            };
+
+            let has_no_owner = match GetWindow(hwnd, GW_OWNER) {
+                Ok(h) => h.0.is_null(),
+                Err(_) => true,
+            };
+
+            let is_not_child = (style & WS_CHILD.0) == 0;
+
+            has_no_parent && has_no_owner && is_not_child
+        }
+    }
+
+    extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        unsafe {
+            let mut pid = 0;
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+
+            let target_pid = lparam.0 as usize as u32;
+            if pid == target_pid {
+                if is_top_level(hwnd) {
+                    println!("Closing PID {} window: {:?}", pid, hwnd);
+                    let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+            }
+        }
+        BOOL(1) // continue enumeration
+    }
+
+    unsafe {
+        EnumWindows(Some(enum_windows_proc), LPARAM(target_pid as isize));
+    }
+    Ok(())
+}
+
+#[allow(unsafe_code)]
+fn close_process_by_pid(pid: u32) -> windows::core::Result<()> {
+    extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let mut window_pid = 0;
+        println!("hi");
+
+        unsafe {
+            GetWindowThreadProcessId(hwnd, Some(&mut window_pid as *mut u32));
+        }
+
+        if window_pid == lparam.0 as u32 {
+            println!("Found window for PID {}: {:?}", window_pid, hwnd);
+            unsafe {
+                PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+
+        BOOL(1)
+    }
+
+    unsafe {
+        EnumWindows(Some(enum_windows_proc), LPARAM(pid as isize));
+    }
+    Ok(())
+}
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -110,26 +184,36 @@ impl eframe::App for TemplateApp {
             ui.separator();
             ui.label("Running processes");
 
+            if ui.button("Close Notepad politely").clicked() {
+                close_by_pid(24588).unwrap();
+            }
+
             self.sys.refresh_processes_specifics(
                 ProcessesToUpdate::All,
                 true,
                 ProcessRefreshKind::everything().without_tasks(),
             );
 
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
                 ui.horizontal(|ui| {
-                    ui.label("PID");
+                    ui.add_sized([50.0, 0.0], egui::Label::new("PID"));
                     ui.label("Process Name");
                 });
 
                 for (pid, process) in self.sys.processes() {
                     ui.horizontal(|ui| {
-                        ui.label(pid.to_string());
+                        ui.add_sized([50.0, 0.0], egui::Label::new(pid.to_string()));
                         ui.label(process.name().to_string_lossy());
-                    });
+                    })
+                        .response
+                        .rect
+                    ;
                 }
-
             });
+
+            ui.spacing_mut().slider_width = 300.0;
 
 
             ui.separator();
