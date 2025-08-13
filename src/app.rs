@@ -50,32 +50,6 @@ pub fn close_by_pid(target_pid: u32) -> Result<()> {
     Ok(())
 }
 
-#[allow(unsafe_code)]
-fn close_process_by_pid(pid: u32) -> windows::core::Result<()> {
-    extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-        let mut window_pid = 0;
-        println!("hi");
-
-        unsafe {
-            GetWindowThreadProcessId(hwnd, Some(&mut window_pid as *mut u32));
-        }
-
-        if window_pid == lparam.0 as u32 {
-            println!("Found window for PID {}: {:?}", window_pid, hwnd);
-            unsafe {
-                PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-        }
-
-        BOOL(1)
-    }
-
-    unsafe {
-        EnumWindows(Some(enum_windows_proc), LPARAM(pid as isize));
-    }
-    Ok(())
-}
-
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
