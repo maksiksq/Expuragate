@@ -1,5 +1,4 @@
-use std::{collections::HashSet};
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::path::Path;
 use egui::Button;
 use egui::UiKind::ScrollArea;
@@ -105,7 +104,6 @@ pub struct TemplateApp {
     #[serde(skip)]
     sys: System,
 
-    // maybe life time parameter here is a bad idea ??? idk
     #[serde(skip)]
     processlist: HashMap<String, u32>,
 
@@ -199,9 +197,13 @@ impl eframe::App for TemplateApp {
             ui.separator();
 
             ui.label("Whitelist in question:");
-            for name in &self.whitelist {
-                ui.label(format!("- {}", strip_file_extension(name)));
-            }
+            egui::ScrollArea::vertical().max_height(300.0)
+                .id_salt("scrollin_30x9403mcd2")
+                .show(ui, |ui| {
+                for name in &self.whitelist {
+                    ui.label(format!("- {}", strip_file_extension(name)));
+                }
+            });
 
 
             ui.separator();
@@ -238,17 +240,20 @@ impl eframe::App for TemplateApp {
                     };
                 }
 
+                for key in &self.whitelist {
+                    self.processlist.remove(key.as_str());
+                }
+
                 for (name, pid) in &self.processlist {
-                    ui.horizontal(|ui| {
-                        if ui.button("+").clicked() {
-                            self.whitelist.insert(name.to_string());
-                        }
-                        ui.add_sized([50.0, 20.0], egui::Label::new(pid.to_string()));
-                        ui.add_sized([0.0, 20.0], egui::Label::new(strip_file_extension(name)));
-                    })
-                        .response
-                        .rect
-                    ;
+                    ui.push_id(*pid, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui.button("+").clicked() {
+                                self.whitelist.insert(name.to_string());
+                            }
+                            ui.add_sized([50.0, 20.0], egui::Label::new(pid.to_string()));
+                            ui.add_sized([0.0, 20.0], egui::Label::new(strip_file_extension(name)));
+                        });
+                    });
                 }
             });
 
