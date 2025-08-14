@@ -1,39 +1,32 @@
-use std::collections::{HashSet, HashMap};
-use std::path::Path;
 use egui::Button;
 use egui::UiKind::ScrollArea;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::path::Path;
 use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
 
 // cfg to enable cpu render if ram gets pushy later
 
-use windows::core::{Array, Result, BOOL};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, GWL_STYLE, GW_OWNER, WM_CLOSE, WS_CHILD};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GW_OWNER, GWL_STYLE, GetParent, GetWindow, GetWindowLongW,
+    GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE, WS_CHILD,
+};
+use windows::core::{Array, BOOL, Result};
 
 #[allow(unsafe_code)]
 pub fn is_top_level(hwnd: HWND) -> bool {
     unsafe {
         let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
 
-        let has_no_parent = match GetParent(hwnd) {
-            Ok(h) => h.0.is_null(),
-            Err(_) => true,
-        };
-
-        let has_no_owner = match GetWindow(hwnd, GW_OWNER) {
-            Ok(h) => h.0.is_null(),
-            Err(_) => true,
-        };
-
         let is_not_child = (style & WS_CHILD.0) == 0;
 
-        has_no_parent && has_no_owner && is_not_child
+        is_not_child
     }
 }
 
 // closing an app by its process id
 #[allow(unsafe_code)]
-pub fn close_by_pid(target_pid: u32) -> Result<()> {
+pub fn close_by_pid(target_pid: &u32) -> Result<()> {
     extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         unsafe {
             let mut pid = 0;
@@ -50,7 +43,7 @@ pub fn close_by_pid(target_pid: u32) -> Result<()> {
     }
 
     unsafe {
-        EnumWindows(Some(enum_windows_proc), LPARAM(target_pid as isize));
+        EnumWindows(Some(enum_windows_proc), LPARAM(*target_pid as isize));
     }
     Ok(())
 }
@@ -74,14 +67,45 @@ pub fn get_hwnd_by_pid(target_pid: u32) -> Option<HWND> {
 
     let mut data = (target_pid, None);
     unsafe {
-        EnumWindows(Some(enum_windows_proc), LPARAM(&mut data as *mut _ as isize));
+        EnumWindows(
+            Some(enum_windows_proc),
+            LPARAM(&mut data as *mut _ as isize),
+        );
     }
 
     data.1
 }
 
 pub fn strip_file_extension(s: &String) -> String {
-    Path::new(s).file_stem().unwrap().to_string_lossy().into_owned()
+    Path::new(s)
+        .file_stem()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned()
+}
+
+// making sure we don't try to kill some system process or helper
+// i'm going to anyway tho, i'm certain lol
+// TODO: make this togglable later
+// maybe check if owner is SYSTEM?
+pub fn loosely_check_if_real_app(pid: &u32, name: &String) -> bool {
+    // system processes
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("service")
+        || lower.contains("helper")
+        || lower.contains("overlay")
+        || lower.contains("tray")
+        || lower.contains("host")
+        || lower.contains("broker")
+        || lower.contains("container")
+        || lower.contains("runtime")
+        || lower.contains("svchost")
+        || lower.contains("dwm")
+        || lower.contains("explorer")
+        || *pid == 0 || *pid == 4 {
+        return false;
+    }
+    true
 }
 
 //
@@ -105,12 +129,15 @@ pub struct TemplateApp {
     sys: System,
 
     #[serde(skip)]
-    processlist: HashMap<String, u32>,
+    processlist: BTreeMap<String, u32>,
+
+    #[serde(skip)]
+    filter_to_remove: HashSet<String>,
 
     #[serde(skip)]
     selected_process_pid: Option<u32>,
 
-    whitelist: HashSet<String>,
+    whitelist: BTreeSet<String>,
 
     #[serde(skip)]
     whitelist_input: String,
@@ -123,9 +150,10 @@ impl Default for TemplateApp {
             label: "Hello World!".to_owned(),
             value: 2.7,
             sys: System::new_all(),
-            processlist: HashMap::new(),
+            processlist: BTreeMap::new(),
+            filter_to_remove: HashSet::new(),
             selected_process_pid: None,
-            whitelist: HashSet::new(),
+            whitelist: BTreeSet::new(),
             whitelist_input: String::new(),
         }
     }
@@ -179,6 +207,46 @@ impl eframe::App for TemplateApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
+            self.sys.refresh_processes_specifics(
+                ProcessesToUpdate::All,
+                true,
+                ProcessRefreshKind::everything().without_tasks(),
+            );
+
+            // populating processlist
+            self.processlist.clear();
+            for (pid, process) in self.sys.processes() {
+                let maybe_hwnd: Option<HWND> = get_hwnd_by_pid(pid.as_u32());
+                if maybe_hwnd.is_none() {
+                    continue;
+                }
+                if is_top_level(maybe_hwnd.unwrap()) {
+                    // we don't strip file extension at the source because we will use in the actual whitelist,
+                    // so it's removed only in display
+                    self.processlist.insert(
+                        process.name().to_string_lossy().parse().unwrap(),
+                        pid.as_u32(),
+                    );
+                };
+            }
+
+            for key in &self.whitelist {
+                self.processlist.remove(key.as_str());
+            }
+
+            // and filtering it
+            for (name, pid) in &self.processlist {
+                if !loosely_check_if_real_app(&pid, &name) || name.as_str() == "expurgate.exe" {
+                    println!("{:?}", name);
+                    self.filter_to_remove.insert(name.clone());
+                };
+            }
+
+            for name in &self.filter_to_remove {
+                &self.processlist.remove(name.as_str());
+            }
+
+
             ui.heading("Whitelist");
 
             ui.horizontal(|ui| {
@@ -197,71 +265,73 @@ impl eframe::App for TemplateApp {
             ui.separator();
 
             ui.label("Whitelist in question:");
-            egui::ScrollArea::vertical().max_height(300.0)
+            egui::ScrollArea::vertical()
+                .max_height(300.0)
                 .id_salt("scrollin_30x9403mcd2")
                 .show(ui, |ui| {
-                for name in &self.whitelist {
-                    ui.label(format!("- {}", strip_file_extension(name)));
-                }
-            });
+                    ui.set_width(ui.available_width());
 
+                    let mut to_remove = None;
 
-            ui.separator();
-            ui.label("Running processes");
+                    for name in &self.whitelist {
+                        ui.horizontal(|ui| {
+                            if ui.button("-").clicked() {
+                                to_remove = Some(name.clone());
+                            }
 
-            if ui.button("Close Notepad politely").clicked() {
-                close_by_pid(24588).unwrap();
-            }
+                            ui.add_sized([50.0, 20.0], egui::Label::new(strip_file_extension(name)));
+                        });
+                    }
 
-            self.sys.refresh_processes_specifics(
-                ProcessesToUpdate::All,
-                true,
-                ProcessRefreshKind::everything().without_tasks(),
-            );
-
-            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-
-                ui.horizontal(|ui| {
-                    ui.add_sized([50.0, 20.0], egui::Label::new("PID"));
-                    ui.add_sized([50.0, 20.0], egui::Label::new("Process Name"));
+                    if let Some(name) = to_remove {
+                        &self.whitelist.remove(&name);
+                    }
                 });
 
-                self.processlist.clear();
-                for (pid, process) in self.sys.processes() {
-                    let maybe_hwnd: Option<HWND> = get_hwnd_by_pid(pid.as_u32());
-                    if maybe_hwnd.is_none() {
-                        continue;
-                    }
-                    if is_top_level(maybe_hwnd.unwrap()) {
-                        // don't strip file extension at the source because we will use in the actual whitelist
-                        // so it's removed only in display
-                        self.processlist.insert(process.name().to_string_lossy().parse().unwrap(), pid.as_u32());
-                    };
-                }
+            ui.separator();
+            ui.label("Death note");
 
-                for key in &self.whitelist {
-                    self.processlist.remove(key.as_str());
-                }
+            if ui.button("Close Notepad politely").clicked() {
+                close_by_pid(&24588).unwrap();
+            }
+            
 
-                for (name, pid) in &self.processlist {
-                    ui.push_id(*pid, |ui| {
-                        ui.horizontal(|ui| {
-                            if ui.button("+").clicked() {
-                                self.whitelist.insert(name.to_string());
-                            }
-                            ui.add_sized([50.0, 20.0], egui::Label::new(pid.to_string()));
-                            ui.add_sized([0.0, 20.0], egui::Label::new(strip_file_extension(name)));
-                        });
+            if ui.button("Kill them all.").clicked() {
+                println!("Killing {:#?}", &self.processlist);
+                for (_, pid) in &self.processlist {
+                    close_by_pid(pid).unwrap();
+                }
+            }
+
+            egui::ScrollArea::vertical()
+                .max_height(300.0)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+
+                    ui.horizontal(|ui| {
+                        ui.add_sized([50.0, 20.0], egui::Label::new("PID"));
+                        ui.add_sized([50.0, 20.0], egui::Label::new("Process Name"));
                     });
-                }
-            });
+
+                    for (name, pid) in &self.processlist {
+                        ui.push_id(*pid, |ui| {
+                            ui.horizontal(|ui| {
+                                if ui.button("+").clicked() {
+                                    self.whitelist.insert(name.to_string());
+                                }
+                                ui.add_sized([50.0, 20.0], egui::Label::new(pid.to_string()));
+                                ui.add_sized(
+                                    [0.0, 20.0],
+                                    egui::Label::new(strip_file_extension(name)),
+                                );
+                            });
+                        });
+                    }
+                });
 
             ui.spacing_mut().slider_width = 300.0;
 
-
             ui.separator();
-
 
             if ui.button("Say hi").clicked() {
                 println!("Say hi");
@@ -271,7 +341,6 @@ impl eframe::App for TemplateApp {
                 ui.label("Write something: ");
                 ui.text_edit_singleline(&mut self.label);
             });
-
 
             ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
             if ui.button("Increment").clicked() {

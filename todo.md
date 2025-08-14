@@ -1,0 +1,2 @@
+- [ ] : There's way too many helper processes caught in my filters
+- [ ] : Have to use the registry (and more) and make processes optional instead. Some processes just don't match top level filter e.g. photoshop.
