@@ -137,10 +137,10 @@ pub struct TemplateApp {
     #[serde(skip)]
     selected_process_pid: Option<u32>,
 
-    whitelist: BTreeSet<String>,
+    allowlist: BTreeSet<String>,
 
     #[serde(skip)]
-    whitelist_input: String,
+    allowlist_input: String,
 }
 
 impl Default for TemplateApp {
@@ -153,8 +153,8 @@ impl Default for TemplateApp {
             processlist: BTreeMap::new(),
             filter_to_remove: HashSet::new(),
             selected_process_pid: None,
-            whitelist: BTreeSet::new(),
-            whitelist_input: String::new(),
+            allowlist: BTreeSet::new(),
+            allowlist_input: String::new(),
         }
     }
 }
@@ -221,7 +221,7 @@ impl eframe::App for TemplateApp {
                     continue;
                 }
                 if is_top_level(maybe_hwnd.unwrap()) {
-                    // we don't strip file extension at the source because we will use in the actual whitelist,
+                    // we don't strip file extension at the source because we will use in the actual allowlist,
                     // so it's removed only in display
                     self.processlist.insert(
                         process.name().to_string_lossy().parse().unwrap(),
@@ -230,7 +230,7 @@ impl eframe::App for TemplateApp {
                 };
             }
 
-            for key in &self.whitelist {
+            for key in &self.allowlist {
                 self.processlist.remove(key.as_str());
             }
 
@@ -247,24 +247,24 @@ impl eframe::App for TemplateApp {
             }
 
 
-            ui.heading("Whitelist");
+            ui.heading("allowlist");
 
             ui.horizontal(|ui| {
-                ui.label("Add to whitelist");
-                ui.text_edit_singleline(&mut self.whitelist_input);
+                ui.label("Add to allowlist");
+                ui.text_edit_singleline(&mut self.allowlist_input);
             });
 
             if ui.button("Add").clicked() {
-                let item = self.whitelist_input.trim();
+                let item = self.allowlist_input.trim();
                 if !item.is_empty() {
-                    self.whitelist.insert(item.to_string());
-                    self.whitelist_input.clear();
+                    self.allowlist.insert(item.to_string());
+                    self.allowlist_input.clear();
                 }
             }
 
             ui.separator();
 
-            ui.label("Whitelist in question:");
+            ui.label("allowlist in question:");
             egui::ScrollArea::vertical()
                 .max_height(300.0)
                 .id_salt("scrollin_30x9403mcd2")
@@ -273,7 +273,7 @@ impl eframe::App for TemplateApp {
 
                     let mut to_remove = None;
 
-                    for name in &self.whitelist {
+                    for name in &self.allowlist {
                         ui.horizontal(|ui| {
                             if ui.button("-").clicked() {
                                 to_remove = Some(name.clone());
@@ -284,7 +284,7 @@ impl eframe::App for TemplateApp {
                     }
 
                     if let Some(name) = to_remove {
-                        &self.whitelist.remove(&name);
+                        &self.allowlist.remove(&name);
                     }
                 });
 
@@ -317,7 +317,7 @@ impl eframe::App for TemplateApp {
                         ui.push_id(*pid, |ui| {
                             ui.horizontal(|ui| {
                                 if ui.button("+").clicked() {
-                                    self.whitelist.insert(name.to_string());
+                                    self.allowlist.insert(name.to_string());
                                 }
                                 ui.add_sized([50.0, 20.0], egui::Label::new(pid.to_string()));
                                 ui.add_sized(

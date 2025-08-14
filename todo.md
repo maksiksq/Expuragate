@@ -4,4 +4,4 @@
 - [ ] : installer because hell
 - [ ] : make it work on linux???
 - [ ] : actual ui you know
-- [ ] : search for processes and whitelist
+- [ ] : search for processes and allowlist
