@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use egui::UiKind::ScrollArea;
 use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
 
+// cfg to enable cpu render if ram gets pushy later
+
 use windows::core::{Array, Result, BOOL};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, GWL_STYLE, GW_OWNER, WM_CLOSE, WS_CHILD};
@@ -39,7 +41,6 @@ pub fn close_by_pid(target_pid: u32) -> Result<()> {
             let target_pid = lparam.0 as usize as u32;
             if pid == target_pid {
                 if is_top_level(hwnd) {
-                    println!("Closing PID {} window: {:?}", pid, hwnd);
                     let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
             }
@@ -74,9 +75,6 @@ pub fn get_hwnd_by_pid(target_pid: u32) -> Option<HWND> {
     unsafe {
         EnumWindows(Some(enum_windows_proc), LPARAM(&mut data as *mut _ as isize));
     }
-
-    println!("e1: {:?}", target_pid);
-    println!("e2: {:?}", data.1);
 
     data.1
 }
@@ -215,29 +213,25 @@ impl eframe::App for TemplateApp {
                 ui.set_width(ui.available_width());
 
                 ui.horizontal(|ui| {
-                    ui.add_sized([50.0, 0.0], egui::Label::new("PID"));
-                    ui.label("Process Name");
+                    ui.add_sized([50.0, 20.0], egui::Label::new("PID"));
+                    ui.add_sized([50.0, 20.0], egui::Label::new("Process Name"));
                 });
 
                 self.processlist.clear();
                 for (pid, process) in self.sys.processes() {
-                    println!("e5: {:?}", pid);
-                    println!("e6: {:?}", process.name());
                     let maybe_hwnd: Option<HWND> = get_hwnd_by_pid(pid.as_u32());
                     if maybe_hwnd.is_none() {
                         continue;
                     }
-                    println!("e3: {:?}", maybe_hwnd.unwrap());
                     if is_top_level(maybe_hwnd.unwrap()) {
                         self.processlist.insert(process.name().to_string_lossy().parse().unwrap(), pid.as_u32());
-                        println!("e4: {:?}", self.processlist);
                     };
                 }
 
                 for (name, pid) in &self.processlist {
                     ui.horizontal(|ui| {
-                        ui.add_sized([50.0, 0.0], egui::Label::new(pid.to_string()));
-                        ui.label(name);
+                        ui.add_sized([50.0, 20.0], egui::Label::new(pid.to_string()));
+                        ui.add_sized([50.0, 20.0], egui::Label::new(name))
                     })
                         .response
                         .rect
