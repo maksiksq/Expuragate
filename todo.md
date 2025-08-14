@@ -1,5 +1,5 @@
 - [ ] : There's way too many helper processes caught in my filters
-- [ ] : Have to use the registry (and more) and make processes optional instead. Some processes just don't match top level filter e.g. photoshop.
+- [ ] : oh my god no just ask windows what is open in the taskbar and that's it rofl
 - [ ] : make it tray and startup
 - [ ] : installer because hell
 - [ ] : make it work on linux???
