@@ -1,5 +1,6 @@
 use std::{collections::HashSet};
 use std::collections::HashMap;
+use std::path::Path;
 use egui::Button;
 use egui::UiKind::ScrollArea;
 use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
@@ -80,6 +81,10 @@ pub fn get_hwnd_by_pid(target_pid: u32) -> Option<HWND> {
     data.1
 }
 
+pub fn strip_file_extension(s: &String) -> String {
+    Path::new(s).file_stem().unwrap().to_string_lossy().into_owned()
+}
+
 //
 // Tomorrow me:
 // Take the current processes, sort the duplicates into one entry and then find top level
@@ -107,7 +112,6 @@ pub struct TemplateApp {
     #[serde(skip)]
     selected_process_pid: Option<u32>,
 
-    #[serde(skip)]
     whitelist: HashSet<String>,
 
     #[serde(skip)]
@@ -194,10 +198,9 @@ impl eframe::App for TemplateApp {
 
             ui.separator();
 
-
             ui.label("Whitelist in question:");
-            for item in &self.whitelist {
-                ui.label(format!("- {}", item));
+            for name in &self.whitelist {
+                ui.label(format!("- {}", strip_file_extension(name)));
             }
 
 
@@ -229,6 +232,8 @@ impl eframe::App for TemplateApp {
                         continue;
                     }
                     if is_top_level(maybe_hwnd.unwrap()) {
+                        // don't strip file extension at the source because we will use in the actual whitelist
+                        // so it's removed only in display
                         self.processlist.insert(process.name().to_string_lossy().parse().unwrap(), pid.as_u32());
                     };
                 }
@@ -239,8 +244,7 @@ impl eframe::App for TemplateApp {
                             self.whitelist.insert(name.to_string());
                         }
                         ui.add_sized([50.0, 20.0], egui::Label::new(pid.to_string()));
-                        ui.add_sized([50.0, 20.0], egui::Label::new(name));
-
+                        ui.add_sized([0.0, 20.0], egui::Label::new(strip_file_extension(name)));
                     })
                         .response
                         .rect
