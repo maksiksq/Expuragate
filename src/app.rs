@@ -1,5 +1,6 @@
 use std::{collections::HashSet};
 use std::collections::HashMap;
+use egui::Button;
 use egui::UiKind::ScrollArea;
 use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
 
@@ -104,6 +105,9 @@ pub struct TemplateApp {
     processlist: HashMap<String, u32>,
 
     #[serde(skip)]
+    selected_process_pid: Option<u32>,
+
+    #[serde(skip)]
     whitelist: HashSet<String>,
 
     #[serde(skip)]
@@ -118,6 +122,7 @@ impl Default for TemplateApp {
             value: 2.7,
             sys: System::new_all(),
             processlist: HashMap::new(),
+            selected_process_pid: None,
             whitelist: HashSet::new(),
             whitelist_input: String::new(),
         }
@@ -230,8 +235,12 @@ impl eframe::App for TemplateApp {
 
                 for (name, pid) in &self.processlist {
                     ui.horizontal(|ui| {
+                        if ui.button("+").clicked() {
+                            self.whitelist.insert(name.to_string());
+                        }
                         ui.add_sized([50.0, 20.0], egui::Label::new(pid.to_string()));
-                        ui.add_sized([50.0, 20.0], egui::Label::new(name))
+                        ui.add_sized([50.0, 20.0], egui::Label::new(name));
+
                     })
                         .response
                         .rect
