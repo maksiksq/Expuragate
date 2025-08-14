@@ -3,4 +3,5 @@
 - [ ] : make it tray and startup
 - [ ] : installer because hell
 - [ ] : make it work on linux???
-- [ ] : 
+- [ ] : actual ui you know
+- [ ] : search for processes and whitelist
