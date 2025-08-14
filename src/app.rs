@@ -1,34 +1,36 @@
 use std::{collections::HashSet};
+use std::collections::HashMap;
 use egui::UiKind::ScrollArea;
-use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
 
-use windows::core::{Result, BOOL};
+use windows::core::{Array, Result, BOOL};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, GWL_STYLE, GW_OWNER, WM_CLOSE, WS_CHILD};
+
+#[allow(unsafe_code)]
+pub fn is_top_level(hwnd: HWND) -> bool {
+    unsafe {
+        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+
+        let has_no_parent = match GetParent(hwnd) {
+            Ok(h) => h.0.is_null(),
+            Err(_) => true,
+        };
+
+        let has_no_owner = match GetWindow(hwnd, GW_OWNER) {
+            Ok(h) => h.0.is_null(),
+            Err(_) => true,
+        };
+
+        let is_not_child = (style & WS_CHILD.0) == 0;
+
+        has_no_parent && has_no_owner && is_not_child
+    }
+}
 
 // closing an app by its process id
 #[allow(unsafe_code)]
 pub fn close_by_pid(target_pid: u32) -> Result<()> {
-    fn is_top_level(hwnd: HWND) -> bool {
-        unsafe {
-            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-
-            let has_no_parent = match GetParent(hwnd) {
-                Ok(h) => h.0.is_null(),
-                Err(_) => true,
-            };
-
-            let has_no_owner = match GetWindow(hwnd, GW_OWNER) {
-                Ok(h) => h.0.is_null(),
-                Err(_) => true,
-            };
-
-            let is_not_child = (style & WS_CHILD.0) == 0;
-
-            has_no_parent && has_no_owner && is_not_child
-        }
-    }
-
     extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         unsafe {
             let mut pid = 0;
@@ -42,13 +44,41 @@ pub fn close_by_pid(target_pid: u32) -> Result<()> {
                 }
             }
         }
-        BOOL(1) // continue enumeration
+        BOOL(1) // continuing enumeration
     }
 
     unsafe {
         EnumWindows(Some(enum_windows_proc), LPARAM(target_pid as isize));
     }
     Ok(())
+}
+
+#[allow(unsafe_code)]
+pub fn get_hwnd_by_pid(target_pid: u32) -> Option<HWND> {
+    extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        unsafe {
+            let mut pid = 0;
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+
+            let data = lparam.0 as *mut (u32, Option<HWND>);
+            let (target_pid, found_hwnd) = unsafe { &mut *data };
+            if pid == *target_pid {
+                *found_hwnd = Some(hwnd);
+                return BOOL(0);
+            };
+        }
+        BOOL(1)
+    }
+
+    let mut data = (target_pid, None);
+    unsafe {
+        EnumWindows(Some(enum_windows_proc), LPARAM(&mut data as *mut _ as isize));
+    }
+
+    println!("e1: {:?}", target_pid);
+    println!("e2: {:?}", data.1);
+
+    data.1
 }
 
 //
@@ -71,6 +101,10 @@ pub struct TemplateApp {
     #[serde(skip)]
     sys: System,
 
+    // maybe life time parameter here is a bad idea ??? idk
+    #[serde(skip)]
+    processlist: HashMap<String, u32>,
+
     #[serde(skip)]
     whitelist: HashSet<String>,
 
@@ -85,6 +119,7 @@ impl Default for TemplateApp {
             label: "Hello World!".to_owned(),
             value: 2.7,
             sys: System::new_all(),
+            processlist: HashMap::new(),
             whitelist: HashSet::new(),
             whitelist_input: String::new(),
         }
@@ -184,10 +219,25 @@ impl eframe::App for TemplateApp {
                     ui.label("Process Name");
                 });
 
+                self.processlist.clear();
                 for (pid, process) in self.sys.processes() {
+                    println!("e5: {:?}", pid);
+                    println!("e6: {:?}", process.name());
+                    let maybe_hwnd: Option<HWND> = get_hwnd_by_pid(pid.as_u32());
+                    if maybe_hwnd.is_none() {
+                        continue;
+                    }
+                    println!("e3: {:?}", maybe_hwnd.unwrap());
+                    if is_top_level(maybe_hwnd.unwrap()) {
+                        self.processlist.insert(process.name().to_string_lossy().parse().unwrap(), pid.as_u32());
+                        println!("e4: {:?}", self.processlist);
+                    };
+                }
+
+                for (name, pid) in &self.processlist {
                     ui.horizontal(|ui| {
                         ui.add_sized([50.0, 0.0], egui::Label::new(pid.to_string()));
-                        ui.label(process.name().to_string_lossy());
+                        ui.label(name);
                     })
                         .response
                         .rect
