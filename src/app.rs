@@ -7,43 +7,62 @@ use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
 // cfg to enable cpu render if ram gets pushy later
 
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GW_OWNER, GWL_STYLE, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE, WS_CHILD, WS_VISIBLE, WS_EX_TOOLWINDOW, GWL_EXSTYLE};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GW_OWNER, GWL_STYLE, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE, WS_CHILD, WS_VISIBLE, WS_EX_TOOLWINDOW, GWL_EXSTYLE, GA_ROOTOWNER, GetAncestor, GetLastActivePopup, WS_EX_APPWINDOW};
 use windows::core::{Array, BOOL, Result};
+use windows::Win32::UI::Shell::{ITaskbarList, TaskbarList};
 
 #[allow(unsafe_code)]
-pub fn is_top_level(hwnd: HWND) -> bool {
+pub fn is_pseudo_open_in_taskbar(mut hwnd: HWND) -> bool {
     unsafe {
-        if IsWindowVisible(hwnd).as_bool() == false {
-            return false;
+        // Finding a visible popup
+        let root = GetAncestor(hwnd, GA_ROOTOWNER);
+        let mut last = root;
+        loop {
+            let popup = GetLastActivePopup(last);
+            if popup == last {
+                break;
+            }
+            if IsWindowVisible(popup).as_bool() {
+                last = popup;
+                break;
+            }
+            last = popup;
         }
 
-        if let Ok(parent) = GetParent(hwnd) {
-            if !parent.0.is_null() {
-                return false;
+        // if the root is invisible but the popup is visible, we use the popup
+        if !IsWindowVisible(last).as_bool() {
+            let popup = GetLastActivePopup(root);
+            if IsWindowVisible(popup).as_bool() {
+                last = popup;
             }
         }
 
-        if let Ok(owner) = GetWindow(hwnd, GW_OWNER) {
-            if !owner.0.is_null() {
+        hwnd = last;
+
+        // Is cloaked?
+        let mut cloaked: u32 = 0;
+        if DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &mut cloaked as *mut _ as _, std::mem::size_of::<u32>() as u32).is_ok() {
+            if cloaked != 0 {
                 return false;
             }
         }
 
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+
+        // Is tool window
         if ex_style & WS_EX_TOOLWINDOW.0 != 0 {
             return false;
         }
 
-        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-        if style & WS_VISIBLE.0 == 0 {
+        // Is visible?
+        if IsWindowVisible(hwnd).as_bool() == false {
+            println!("Failed at visibility check");
+            println!("a: {:?}", root);
+            println!("a: {:?}", hwnd);
             return false;
         }
-
-        // let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-        //
-        // let is_not_child = (style & WS_CHILD.0) == 0;
-        //
-        // is_not_child
+        println!("passed");
 
         true
     }
@@ -70,7 +89,7 @@ pub fn close_by_pid(target_pid: &u32) -> Result<()> {
 
             let target_pid = lparam.0 as usize as u32;
             if pid == target_pid {
-                if is_top_level(hwnd) {
+                if is_pseudo_open_in_taskbar(hwnd) {
                     let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
             }
@@ -123,7 +142,6 @@ pub fn strip_file_extension(s: &String) -> String {
 // making sure we don't try to kill some system process or helper
 // i'm going to anyway tho, i'm certain lol
 // TODO: make this togglable later
-// maybe check if owner is SYSTEM?
 pub fn loosely_check_if_real_app(pid: &u32, name: &String) -> bool {
     // system processes
     let lower = name.to_ascii_lowercase();
@@ -143,13 +161,6 @@ pub fn loosely_check_if_real_app(pid: &u32, name: &String) -> bool {
     }
     true
 }
-
-//
-// Tomorrow me:
-// Take the current processes, sort the duplicates into one entry and then find top level
-// (instead of the registry and parts (cause paths can change))
-//
-// pub fn get_list_available_apps
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -256,7 +267,8 @@ impl eframe::App for TemplateApp {
                 if maybe_hwnd.is_none() {
                     continue;
                 }
-                if is_top_level(maybe_hwnd.unwrap()) {
+                println!("{}", process.name().to_string_lossy());
+                if is_pseudo_open_in_taskbar(maybe_hwnd.unwrap()) {
                     // we don't strip file extension at the source because we will use in the actual allowlist,
                     // so it's removed only in display
                     self.processlist.insert(

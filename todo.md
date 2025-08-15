@@ -5,3 +5,4 @@
 - [ ] : make it work on linux???
 - [ ] : actual ui you know
 - [ ] : search for processes and allowlist
+- [ ] : handle explorer specially
