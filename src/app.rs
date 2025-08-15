@@ -2,6 +2,8 @@ use egui::Button;
 use egui::UiKind::ScrollArea;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
 
@@ -13,7 +15,12 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOD_ALT, MOD_CONTROL, RegisterHotKey, UnregisterHotKey,
 };
 use windows::Win32::UI::Shell::{ITaskbarList, TaskbarList};
-use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GA_ROOTOWNER, GW_OWNER, GWL_EXSTYLE, GWL_STYLE, GetAncestor, GetLastActivePopup, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE, WS_CHILD, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_VISIBLE, MSG, GetMessageW, WM_HOTKEY};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GA_ROOTOWNER, GW_OWNER, GWL_EXSTYLE, GWL_STYLE, GetAncestor, GetLastActivePopup,
+    GetMessageW, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible,
+    MSG, PostMessageW, WM_CLOSE, WM_HOTKEY, WS_CHILD, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    WS_VISIBLE,
+};
 use windows::core::{Array, BOOL, Result};
 
 #[allow(unsafe_code)]
@@ -147,28 +154,10 @@ pub fn strip_file_extension(s: &String) -> String {
 }
 
 #[allow(unsafe_code)]
-pub fn register_hotkey(id: i32) {
+pub fn register_kill_hotkey() {
     unsafe {
-        RegisterHotKey(
-            Option::from(HWND(std::ptr::null_mut())),
-            id,
-            MOD_CONTROL | MOD_ALT,
-            'J' as u32,
-        )
-        .expect("Failed to register hotkey");
-    }
-
-    #[allow(unsafe_code)]
-    pub fn register_hotkey(id: i32) {
-        unsafe {
-            RegisterHotKey(
-                Option::from(HWND(std::ptr::null_mut())),
-                id,
-                MOD_CONTROL | MOD_ALT,
-                'J' as u32,
-            )
+        RegisterHotKey(None, 1, MOD_CONTROL | MOD_ALT, 'J' as u32)
             .expect("Failed to register hotkey");
-        }
     }
 }
 
@@ -182,17 +171,14 @@ pub fn unregister_hotkey(id: i32) {
 
 // handling closing with a hotkey
 #[allow(unsafe_code)]
-pub fn start_hotkey_listener() {
-    thread::spawn(|| {
-        unsafe {
-            RegisterHotKey(None, 1, MOD_CONTROL | MOD_ALT, 'J' as u32)
-                .expect("Failed to register hotkey");
+pub fn start_kill_hotkey_listener(tx: Sender<HotkeyEvent>) {
+    thread::spawn(move || unsafe {
+        let mut msg = MSG::default();
+        register_kill_hotkey();
 
-            let mut msg = MSG::default();
-            while GetMessageW(&mut msg, None, 0, 0).into() {
-                if msg.message == WM_HOTKEY && msg.wParam.0 == 1 {
-                    println!("Hotkey pressed!");
-                }
+        while GetMessageW(&mut msg, None, 0, 0).into() {
+            if msg.message == WM_HOTKEY && msg.wParam.0 == 1 {
+                tx.send(HotkeyEvent::Kill).ok();
             }
         }
     });
@@ -223,6 +209,11 @@ pub fn loosely_check_if_real_app(pid: &u32, name: &String) -> bool {
     true
 }
 
+#[derive(Debug)]
+pub enum HotkeyEvent {
+    Kill,
+}
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -249,10 +240,20 @@ pub struct TemplateApp {
 
     #[serde(skip)]
     allowlist_input: String,
+
+    #[serde(skip)]
+    kill_hotkey_registered: bool,
+
+    #[serde(skip)]
+    hotkey_rx: Receiver<HotkeyEvent>,
+
 }
 
 impl Default for TemplateApp {
     fn default() -> Self {
+        // dummy sender
+        let (_tx, rx) = mpsc::channel();
+
         Self {
             // Example stuff:
             label: "Hello World!".to_owned(),
@@ -263,6 +264,8 @@ impl Default for TemplateApp {
             selected_process_pid: None,
             allowlist: BTreeSet::new(),
             allowlist_input: String::new(),
+            kill_hotkey_registered: false,
+            hotkey_rx: rx,
         }
     }
 }
@@ -270,18 +273,24 @@ impl Default for TemplateApp {
 impl TemplateApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        start_hotkey_listener();
-
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
-        if let Some(storage) = cc.storage {
+        let mut app: TemplateApp = if let Some(storage) = cc.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
         } else {
             Default::default()
-        }
+        };
+
+        // handling the politely killing listener
+        let (tx, rx) = mpsc::channel::<HotkeyEvent>();
+        start_kill_hotkey_listener(tx);
+        app.hotkey_rx = rx;
+
+        app
+
     }
 }
 
@@ -293,7 +302,6 @@ impl eframe::App for TemplateApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
 
@@ -355,6 +363,20 @@ impl eframe::App for TemplateApp {
             for name in &self.filter_to_remove {
                 &self.processlist.remove(name.as_str());
             }
+
+            // handling kill hotkey
+            while let Ok(e) = self.hotkey_rx.try_recv() {
+                match e {
+                    HotkeyEvent::Kill => {
+                        println!("Polite murder initiated.");
+                        for (_, pid) in &self.processlist {
+                            close_by_pid(pid).unwrap();
+                        }
+                    }
+                }
+            }
+
+            // ui:
 
             ui.heading("allowlist");
 

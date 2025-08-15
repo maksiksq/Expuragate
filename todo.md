@@ -3,6 +3,7 @@
 - [ ] : Hotkey
 - [ ] : make it tray and startup
 - [ ] : installer because hell
+- [ ] : handle chrome profiles separately
 - [ ] : make it work on linux???
 - [ ] : actual ui you know
 - [ ] : search for processes and allowlist
