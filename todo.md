@@ -1,6 +1,7 @@
 - [x] : There's way too many helper processes caught in my filters
 - [ ] : Add killlist and manual process selection
 - [ ] : Hotkey
+- [ ] : find what makes figma unkillable (or rather ... undead? ...)
 - [ ] : make it tray and startup
 - [ ] : installer because hell
 - [ ] : handle chrome profiles separately
