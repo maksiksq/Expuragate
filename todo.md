@@ -1,5 +1,5 @@
 - [ ] : There's way too many helper processes caught in my filters
-- [ ] : oh my god no just ask windows what is open in the taskbar and that's it rofl
+- [ ] : oh my god no just ask windows what is open in the taskbar and that's it rofl, i think u cant do that directly damn, maybe more filtering of the hwnd can solve it tho??
 - [ ] : make it tray and startup
 - [ ] : installer because hell
 - [ ] : make it work on linux???

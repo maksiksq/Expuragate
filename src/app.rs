@@ -7,22 +7,58 @@ use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
 // cfg to enable cpu render if ram gets pushy later
 
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GW_OWNER, GWL_STYLE, GetParent, GetWindow, GetWindowLongW,
-    GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE, WS_CHILD,
-};
+use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GW_OWNER, GWL_STYLE, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE, WS_CHILD, WS_VISIBLE, WS_EX_TOOLWINDOW, GWL_EXSTYLE};
 use windows::core::{Array, BOOL, Result};
 
 #[allow(unsafe_code)]
 pub fn is_top_level(hwnd: HWND) -> bool {
     unsafe {
+        if IsWindowVisible(hwnd).as_bool() == false {
+            return false;
+        }
+
+        if let Ok(parent) = GetParent(hwnd) {
+            if !parent.0.is_null() {
+                return false;
+            }
+        }
+
+        if let Ok(owner) = GetWindow(hwnd, GW_OWNER) {
+            if !owner.0.is_null() {
+                return false;
+            }
+        }
+
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+        if ex_style & WS_EX_TOOLWINDOW.0 != 0 {
+            return false;
+        }
+
         let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+        if style & WS_VISIBLE.0 == 0 {
+            return false;
+        }
 
-        let is_not_child = (style & WS_CHILD.0) == 0;
+        // let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+        //
+        // let is_not_child = (style & WS_CHILD.0) == 0;
+        //
+        // is_not_child
 
-        is_not_child
+        true
     }
 }
+
+// #[allow(unsafe_code)]
+// pub fn is_top_level(hwnd: HWND) -> bool {
+//     unsafe {
+//         let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+//
+//         let is_not_child = (style & WS_CHILD.0) == 0;
+//
+//         is_not_child
+//     }
+// }
 
 // closing an app by its process id
 #[allow(unsafe_code)]
