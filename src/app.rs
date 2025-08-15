@@ -2,15 +2,19 @@ use egui::Button;
 use egui::UiKind::ScrollArea;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
+use std::thread;
 use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
 
 // cfg to enable cpu render if ram gets pushy later
 
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
-use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GW_OWNER, GWL_STYLE, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE, WS_CHILD, WS_VISIBLE, WS_EX_TOOLWINDOW, GWL_EXSTYLE, GA_ROOTOWNER, GetAncestor, GetLastActivePopup, WS_EX_APPWINDOW};
-use windows::core::{Array, BOOL, Result};
+use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    MOD_ALT, MOD_CONTROL, RegisterHotKey, UnregisterHotKey,
+};
 use windows::Win32::UI::Shell::{ITaskbarList, TaskbarList};
+use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GA_ROOTOWNER, GW_OWNER, GWL_EXSTYLE, GWL_STYLE, GetAncestor, GetLastActivePopup, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE, WS_CHILD, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_VISIBLE, MSG, GetMessageW, WM_HOTKEY};
+use windows::core::{Array, BOOL, Result};
 
 #[allow(unsafe_code)]
 pub fn is_pseudo_open_in_taskbar(mut hwnd: HWND) -> bool {
@@ -42,7 +46,14 @@ pub fn is_pseudo_open_in_taskbar(mut hwnd: HWND) -> bool {
 
         // Is cloaked?
         let mut cloaked: u32 = 0;
-        if DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &mut cloaked as *mut _ as _, std::mem::size_of::<u32>() as u32).is_ok() {
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            &mut cloaked as *mut _ as _,
+            std::mem::size_of::<u32>() as u32,
+        )
+        .is_ok()
+        {
             if cloaked != 0 {
                 return false;
             }
@@ -57,12 +68,8 @@ pub fn is_pseudo_open_in_taskbar(mut hwnd: HWND) -> bool {
 
         // Is visible?
         if IsWindowVisible(hwnd).as_bool() == false {
-            println!("Failed at visibility check");
-            println!("a: {:?}", root);
-            println!("a: {:?}", hwnd);
             return false;
         }
-        println!("passed");
 
         true
     }
@@ -139,6 +146,58 @@ pub fn strip_file_extension(s: &String) -> String {
         .into_owned()
 }
 
+#[allow(unsafe_code)]
+pub fn register_hotkey(id: i32) {
+    unsafe {
+        RegisterHotKey(
+            Option::from(HWND(std::ptr::null_mut())),
+            id,
+            MOD_CONTROL | MOD_ALT,
+            'J' as u32,
+        )
+        .expect("Failed to register hotkey");
+    }
+
+    #[allow(unsafe_code)]
+    pub fn register_hotkey(id: i32) {
+        unsafe {
+            RegisterHotKey(
+                Option::from(HWND(std::ptr::null_mut())),
+                id,
+                MOD_CONTROL | MOD_ALT,
+                'J' as u32,
+            )
+            .expect("Failed to register hotkey");
+        }
+    }
+}
+
+#[allow(unsafe_code)]
+pub fn unregister_hotkey(id: i32) {
+    unsafe {
+        UnregisterHotKey(Option::from(HWND(std::ptr::null_mut())), id)
+            .expect("Failed to unregister hotkey");
+    }
+}
+
+// handling closing with a hotkey
+#[allow(unsafe_code)]
+pub fn start_hotkey_listener() {
+    thread::spawn(|| {
+        unsafe {
+            RegisterHotKey(None, 1, MOD_CONTROL | MOD_ALT, 'J' as u32)
+                .expect("Failed to register hotkey");
+
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).into() {
+                if msg.message == WM_HOTKEY && msg.wParam.0 == 1 {
+                    println!("Hotkey pressed!");
+                }
+            }
+        }
+    });
+}
+
 // making sure we don't try to kill some system process or helper
 // i'm going to anyway tho, i'm certain lol
 // TODO: make this togglable later
@@ -156,7 +215,9 @@ pub fn loosely_check_if_real_app(pid: &u32, name: &String) -> bool {
         || lower.contains("svchost")
         || lower.contains("dwm")
         || lower.contains("explorer")
-        || *pid == 0 || *pid == 4 {
+        || *pid == 0
+        || *pid == 4
+    {
         return false;
     }
     true
@@ -209,6 +270,8 @@ impl Default for TemplateApp {
 impl TemplateApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        start_hotkey_listener();
+
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
@@ -230,6 +293,7 @@ impl eframe::App for TemplateApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
 
@@ -267,7 +331,6 @@ impl eframe::App for TemplateApp {
                 if maybe_hwnd.is_none() {
                     continue;
                 }
-                println!("{}", process.name().to_string_lossy());
                 if is_pseudo_open_in_taskbar(maybe_hwnd.unwrap()) {
                     // we don't strip file extension at the source because we will use in the actual allowlist,
                     // so it's removed only in display
@@ -285,7 +348,6 @@ impl eframe::App for TemplateApp {
             // and filtering it
             for (name, pid) in &self.processlist {
                 if !loosely_check_if_real_app(&pid, &name) || name.as_str() == "expurgate.exe" {
-                    println!("{:?}", name);
                     self.filter_to_remove.insert(name.clone());
                 };
             }
@@ -293,7 +355,6 @@ impl eframe::App for TemplateApp {
             for name in &self.filter_to_remove {
                 &self.processlist.remove(name.as_str());
             }
-
 
             ui.heading("allowlist");
 
@@ -327,7 +388,10 @@ impl eframe::App for TemplateApp {
                                 to_remove = Some(name.clone());
                             }
 
-                            ui.add_sized([50.0, 20.0], egui::Label::new(strip_file_extension(name)));
+                            ui.add_sized(
+                                [50.0, 20.0],
+                                egui::Label::new(strip_file_extension(name)),
+                            );
                         });
                     }
 
@@ -342,10 +406,8 @@ impl eframe::App for TemplateApp {
             if ui.button("Close Notepad politely").clicked() {
                 close_by_pid(&24588).unwrap();
             }
-            
 
             if ui.button("Kill them all.").clicked() {
-                println!("Killing {:#?}", &self.processlist);
                 for (_, pid) in &self.processlist {
                     close_by_pid(pid).unwrap();
                 }
