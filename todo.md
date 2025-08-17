@@ -1,6 +1,7 @@
 - [x] : There's way too many helper processes caught in my filters
 - [ ] : Add killlist and manual process selection
-- [ ] : Hotkey
+- [x] : Hotkey
+- [x] : Make hotkey bindable
 - [ ] : find what makes figma unkillable (or rather ... undead? ...)
 - [ ] : make it tray 
 - [ ] : and startup
@@ -10,6 +11,8 @@
 - [ ] : actual ui you know
 - [ ] : search for processes and allowlist
 - [ ] : handle explorer specially
+- [ ] : Discord goes off with itself in tray
+- [ ] : Process killlist is jank
 
 Main optimizations:
 Using Rust because it's fast, low-level and efficient and cool. Written cleanly it saves a lot of memory.

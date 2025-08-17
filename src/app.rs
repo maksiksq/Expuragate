@@ -1,5 +1,6 @@
 use egui::Button;
 use egui::UiKind::ScrollArea;
+use log::__private_api::enabled;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::mpsc;
@@ -24,7 +25,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{Array, BOOL, Result};
 
 #[allow(unsafe_code)]
-pub fn is_pseudo_open_in_taskbar(mut hwnd: HWND) -> bool {
+pub fn is_pseudo_open_in_taskbar(mut hwnd: HWND, show_all_processes: bool) -> bool {
+    if (show_all_processes) {
+        return true;
+    }
     unsafe {
         // Finding a visible popup
         let root = GetAncestor(hwnd, GA_ROOTOWNER);
@@ -103,9 +107,7 @@ pub fn close_by_pid(target_pid: &u32) -> Result<()> {
 
             let target_pid = lparam.0 as usize as u32;
             if pid == target_pid {
-                if is_pseudo_open_in_taskbar(hwnd) {
-                    let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
+                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
         }
         BOOL(1) // continuing enumeration
@@ -200,7 +202,9 @@ pub fn loosely_check_if_real_app(pid: &u32, name: &String) -> bool {
         || lower.contains("runtime")
         || lower.contains("svchost")
         || lower.contains("dwm")
+        // TODO: handle these two manually later
         || lower.contains("explorer")
+        || lower.contains("taskmgr")
         || *pid == 0
         || *pid == 4
     {
@@ -225,6 +229,9 @@ pub struct Expurgate {
     processlist: BTreeMap<String, u32>,
 
     #[serde(skip)]
+    unf_processlist: BTreeMap<String, u32>,
+
+    #[serde(skip)]
     filter_to_remove: HashSet<String>,
 
     #[serde(skip)]
@@ -233,14 +240,14 @@ pub struct Expurgate {
     allowlist: BTreeSet<String>,
 
     #[serde(skip)]
-    allowlist_input: String,
-
-    #[serde(skip)]
     kill_hotkey_registered: bool,
 
     #[serde(skip)]
     hotkey_rx: Receiver<HotkeyEvent>,
 
+    show_all_processes: bool,
+
+    killlist: BTreeSet<String>,
 }
 
 impl Default for Expurgate {
@@ -251,12 +258,14 @@ impl Default for Expurgate {
         Self {
             sys: System::new_all(),
             processlist: BTreeMap::new(),
+            unf_processlist: BTreeMap::new(),
             filter_to_remove: HashSet::new(),
             selected_process_pid: None,
             allowlist: BTreeSet::new(),
-            allowlist_input: String::new(),
             kill_hotkey_registered: false,
             hotkey_rx: rx,
+            show_all_processes: false,
+            killlist: BTreeSet::new(),
         }
     }
 }
@@ -281,7 +290,6 @@ impl Expurgate {
         app.hotkey_rx = rx;
 
         app
-
     }
 }
 
@@ -319,7 +327,7 @@ impl eframe::App for Expurgate {
                 if maybe_hwnd.is_none() {
                     continue;
                 }
-                if is_pseudo_open_in_taskbar(maybe_hwnd.unwrap()) {
+                if is_pseudo_open_in_taskbar(maybe_hwnd.unwrap(), false) {
                     // we don't strip file extension at the source because we will use in the actual allowlist,
                     // so it's removed only in display
                     self.processlist.insert(
@@ -334,15 +342,15 @@ impl eframe::App for Expurgate {
             }
 
             // and filtering it
-            for (name, pid) in &self.processlist {
-                if !loosely_check_if_real_app(&pid, &name) || name.as_str() == "expurgate.exe" {
-                    self.filter_to_remove.insert(name.clone());
-                };
-            }
+                for (name, pid) in &self.processlist {
+                    if !loosely_check_if_real_app(&pid, &name) || name.as_str() == "expurgate.exe" {
+                        self.filter_to_remove.insert(name.clone());
+                    };
+                }
 
-            for name in &self.filter_to_remove {
-                &self.processlist.remove(name.as_str());
-            }
+                for name in &self.filter_to_remove {
+                    &self.processlist.remove(name.as_str());
+                }
 
             // handling kill hotkey
             while let Ok(e) = self.hotkey_rx.try_recv() {
@@ -390,15 +398,22 @@ impl eframe::App for Expurgate {
                 });
 
             ui.separator();
-            ui.label("Tax Evaders");
+            ui.label("Tax Evaders:");
+            ui.label("These are closed automatically whenever you please.");
 
-            if ui.button("Close Notepad politely").clicked() {
-                close_by_pid(&24588).unwrap();
-            }
+            // if ui.button("Close Notepad politely").clicked() {
+            //     close_by_pid(&24588).unwrap();
+            // }
 
             if ui.button("Kill them all.").clicked() {
                 for (_, pid) in &self.processlist {
                     close_by_pid(pid).unwrap();
+                }
+                for (name, pid) in &self.unf_processlist {
+                    if self.killlist.contains(name) {
+                        println!("hai: {}", name);
+                        close_by_pid(pid).unwrap();
+                    }
                 }
             }
 
@@ -430,6 +445,94 @@ impl eframe::App for Expurgate {
 
             // ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
             // });
+
+            ui.checkbox(&mut self.show_all_processes, "Advanced");
+            if (!self.show_all_processes) {
+                return;
+            }
+            ui.heading("advanced");
+            ui.separator();
+
+            ui.label("Explicit killlist");
+            ui.label("Here you can pick processes to kill if they do not appear up there");
+            ui.label("Some apps (e.g. Figma) bypass my filters. You can add their processes to the killlist manually instead for now.");
+
+            egui::ScrollArea::vertical()
+                .max_height(300.0)
+                .id_salt("scrollin_killist_30x9403mcd2")
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+
+                    let mut to_remove = None;
+
+                    for name in &self.killlist {
+                        ui.horizontal(|ui| {
+                            if ui.button("-").clicked() {
+                                to_remove = Some(name.clone());
+                            }
+
+                            ui.add_sized(
+                                [50.0, 20.0],
+                                egui::Label::new(strip_file_extension(name)),
+                            );
+                        });
+                    }
+
+                    if let Some(name) = to_remove {
+                        &self.killlist.remove(&name);
+                    }
+                });
+
+
+            ui.label("Note: System processes and most others will not be closed since the app does not kill them but asks to close the window instead.");
+
+            // populating unfiltered processlist
+            self.unf_processlist.clear();
+            for (pid, process) in self.sys.processes() {
+                let maybe_hwnd: Option<HWND> = get_hwnd_by_pid(pid.as_u32());
+                if maybe_hwnd.is_none() {
+                    continue;
+                }
+                self.unf_processlist.insert(
+                    process.name().to_string_lossy().parse().unwrap(),
+                    pid.as_u32(),
+                );
+                if is_pseudo_open_in_taskbar(maybe_hwnd.unwrap(), true) {
+                    // we don't strip file extension at the source because we will use in the actual allowlist,
+                    // so it's removed only in display
+                    self.unf_processlist.insert(
+                        process.name().to_string_lossy().parse().unwrap(),
+                        pid.as_u32(),
+                    );
+                };
+            }
+
+            egui::ScrollArea::vertical()
+                .id_salt("cool-scrollarea-wahoo235235")
+                .max_height(301.0)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+
+                    ui.horizontal(|ui| {
+                        ui.add_sized([50.0, 20.0], egui::Label::new("PID"));
+                        ui.add_sized([50.0, 20.0], egui::Label::new("Process Name"));
+                    });
+
+                    for (name, pid) in &self.unf_processlist {
+                        ui.push_id(*pid, |ui| {
+                            ui.horizontal(|ui| {
+                                if ui.button("+").clicked() {
+                                    self.killlist.insert(name.to_string());
+                                }
+                                ui.add_sized([50.0, 20.0], egui::Label::new(pid.to_string()));
+                                ui.add_sized(
+                                    [0.0, 20.0],
+                                    egui::Label::new(strip_file_extension(name)),
+                                );
+                            });
+                        });
+                    }
+                });
         });
     }
 }
