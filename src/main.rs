@@ -44,6 +44,7 @@ fn main() -> eframe::Result {
         })
             .unwrap();
 
+
         tray.inner_mut().add_separator().unwrap();
 
         let quit_tx = tx.clone();
