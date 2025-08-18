@@ -2,7 +2,7 @@
 
 Note: raw alpha, very jank
 
-This tini-tiny app - ~35-50 mb of ram, lets you close all open windows except allowlisted ones with a keyboard shortcut anywhere. Ctrl+Alt+J by default.
+This tini-tiny app - ~25-50 mb of ram, lets you close all open windows except allowlisted ones with a keyboard shortcut anywhere. Ctrl+Alt+J by default.
 
 It mimics the behavior of closing a window with the X button so you shouldn't worry about unsaved things, the "you have unsaved changes" pop-up if one is present that is, should save you.
 
