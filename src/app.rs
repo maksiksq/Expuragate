@@ -1,13 +1,9 @@
-use egui::UiKind::ScrollArea;
-use egui::{Button, ViewportId};
-use log::__private_api::enabled;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
-use std::time::Duration;
-use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 use tray_item::{IconSource, TrayItem};
 // cfg to enable cpu render if ram gets pushy later
 
@@ -16,14 +12,13 @@ use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOD_ALT, MOD_CONTROL, RegisterHotKey, UnregisterHotKey,
 };
-use windows::Win32::UI::Shell::{ITaskbarList, TaskbarList};
+
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GA_ROOTOWNER, GW_OWNER, GWL_EXSTYLE, GWL_STYLE, GetAncestor, GetLastActivePopup,
-    GetMessageW, GetParent, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible,
-    MSG, PostMessageW, WM_CLOSE, WM_HOTKEY, WS_CHILD, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
-    WS_VISIBLE,
+    EnumWindows, GA_ROOTOWNER, GWL_EXSTYLE, GetAncestor, GetLastActivePopup,
+    GetMessageW, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible,
+    MSG, PostMessageW, WM_CLOSE, WM_HOTKEY, WS_EX_TOOLWINDOW,
 };
-use windows::core::{Array, BOOL, Result};
+use windows::core::{BOOL, Result};
 
 enum Message {
     Quit,
@@ -34,7 +29,7 @@ enum Message {
 
 #[allow(unsafe_code)]
 pub fn is_pseudo_open_in_taskbar(mut hwnd: HWND, show_all_processes: bool) -> bool {
-    if (show_all_processes) {
+    if show_all_processes {
         return true;
     }
     unsafe {
@@ -69,7 +64,7 @@ pub fn is_pseudo_open_in_taskbar(mut hwnd: HWND, show_all_processes: bool) -> bo
             hwnd,
             DWMWA_CLOAKED,
             &mut cloaked as *mut _ as _,
-            std::mem::size_of::<u32>() as u32,
+            size_of::<u32>() as u32,
         )
         .is_ok()
         {
@@ -171,6 +166,7 @@ pub fn register_kill_hotkey() {
     }
 }
 
+// future use
 #[allow(unsafe_code)]
 pub fn unregister_hotkey(id: i32) {
     unsafe {
@@ -431,7 +427,7 @@ impl eframe::App for Expurgate {
             }
 
             for name in &self.filter_to_remove {
-                &self.processlist.remove(name.as_str());
+                self.processlist.remove(name.as_str());
             }
 
             // handling kill hotkey
@@ -475,7 +471,7 @@ impl eframe::App for Expurgate {
                     }
 
                     if let Some(name) = to_remove {
-                        &self.allowlist.remove(&name);
+                        self.allowlist.remove(&name);
                     }
                 });
 
@@ -531,7 +527,7 @@ impl eframe::App for Expurgate {
             ui.separator();
 
             ui.checkbox(&mut self.show_all_processes, "Advanced");
-            if (!self.show_all_processes) {
+            if !self.show_all_processes {
                 return;
             }
             ui.heading("advanced");
@@ -562,7 +558,7 @@ impl eframe::App for Expurgate {
                     }
 
                     if let Some(name) = to_remove {
-                        &self.killlist.remove(&name);
+                        self.killlist.remove(&name);
                     }
                 });
 
