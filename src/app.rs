@@ -288,7 +288,7 @@ impl Expurgate {
             move || {
                 let mut tray = TrayItem::new(
                     "Tray",
-                    IconSource::Resource("test"),
+                    IconSource::Resource("icon"),
                 )
                     .unwrap();
 
@@ -345,7 +345,7 @@ impl Expurgate {
                             println!("Unhide");
                             let viewport = egui::ViewportId::ROOT;
                             ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::Decorations(true));
-                            ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::InnerSize([350.0, 450.0].into()));
+                            ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::InnerSize([350.0, 480.0].into()));
                             ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::OuterPosition(egui::pos2(200.0, 200.0)));
                             ctx.request_repaint();
                         }
@@ -455,7 +455,7 @@ impl eframe::App for Expurgate {
             ui.label("allowlist in question:");
             egui::ScrollArea::vertical()
                 .max_height(300.0)
-                .id_salt("scrollin_30x9403mcd2")
+                .id_salt("scrollin_allowlist_30x9403mcd2")
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
 
@@ -481,7 +481,7 @@ impl eframe::App for Expurgate {
 
             ui.separator();
             ui.label("Tax Evaders:");
-            ui.label("These are closed whenever you please.");
+            ui.label("These are closed whenever you please. Ctrl+Alt+J");
 
             // if ui.button("Close Notepad politely").clicked() {
             //     close_by_pid(&24588).unwrap();
@@ -538,8 +538,7 @@ impl eframe::App for Expurgate {
             ui.separator();
 
             ui.label("Explicit killlist");
-            ui.label("Here you can pick processes to kill if they do not appear up there");
-            ui.label("Some apps (e.g. Figma) bypass my filters. You can add their processes to the killlist manually instead for now.");
+            ui.label("Here you can pick processes to kill if they do not appear up there, some (e.g. Figma) bypass my filters (for now).");
 
             egui::ScrollArea::vertical()
                 .max_height(300.0)

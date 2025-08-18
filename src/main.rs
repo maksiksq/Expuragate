@@ -12,12 +12,13 @@ fn main() -> eframe::Result {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([350.0, 450.0])
-            .with_max_inner_size([350.0, 450.0])
-            .with_min_inner_size([350.0, 450.0])
+            // note, tied this one to unhide in app.rs
+            .with_inner_size([350.0, 480.0])
+            .with_max_inner_size([350.0, 480.0])
+            .with_min_inner_size([350.0, 480.0])
             .with_icon(
                 // NOTE: Adding an icon is optional
-                eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icon-256.png")[..])
+                eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icon-256-temp.png")[..])
                     .expect("Failed to load icon"),
             ),
         ..Default::default()
