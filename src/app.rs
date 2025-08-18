@@ -1,13 +1,14 @@
-use egui::Button;
 use egui::UiKind::ScrollArea;
+use egui::{Button, ViewportId};
 use log::__private_api::enabled;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
+use std::time::Duration;
 use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System};
-
+use tray_item::{IconSource, TrayItem};
 // cfg to enable cpu render if ram gets pushy later
 
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -23,6 +24,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_VISIBLE,
 };
 use windows::core::{Array, BOOL, Result};
+
+enum Message {
+    Quit,
+    Hide,
+    Unhide,
+}
+
 
 #[allow(unsafe_code)]
 pub fn is_pseudo_open_in_taskbar(mut hwnd: HWND, show_all_processes: bool) -> bool {
@@ -273,6 +281,80 @@ impl Default for Expurgate {
 impl Expurgate {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let ctx = cc.egui_ctx.clone();
+
+        thread::spawn({
+            let ctx = ctx.clone();
+            move || {
+                let mut tray = TrayItem::new(
+                    "Tray",
+                    IconSource::Resource("test"),
+                )
+                    .unwrap();
+
+                tray.add_label("Tray Label").unwrap();
+
+                tray.add_menu_item("Hello", || {
+                    println!("Hello!");
+                })
+                    .unwrap();
+
+                tray.inner_mut().add_separator().unwrap();
+
+                let (tx, rx) = mpsc::sync_channel(1);
+
+                let hide_tx = tx.clone();
+                tray.add_menu_item("Hide", move || {
+                    hide_tx.send(Message::Hide).unwrap();
+                })
+                    .unwrap();
+
+                let unhide_tx = tx.clone();
+                tray.add_menu_item("Unhide", move || {
+                    unhide_tx.send(Message::Unhide).unwrap();
+                })
+                    .unwrap();
+
+
+                tray.inner_mut().add_separator().unwrap();
+
+                let quit_tx = tx.clone();
+                tray.add_menu_item("Quit", move || {
+                    quit_tx.send(Message::Quit).unwrap();
+                })
+                    .unwrap();
+
+                loop {
+                    match rx.recv() {
+                        Ok(Message::Quit) => {
+                            println!("Quit");
+                            break;
+                        }
+                        Ok(Message::Hide) => {
+                            println!("Hide");
+                            // We hackily do the hiding by just making the app 0 pixels in size
+                            // The visibility of the window never toggles back because of an eFrame bug (egui #5229)
+                            // so oh well
+                            let viewport = egui::ViewportId::ROOT;
+                            ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::Decorations(false));
+                            ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::InnerSize([0.0, 0.0].into()));
+                            ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::OuterPosition(egui::pos2(-10000.0, -10000.0)));
+                            ctx.request_repaint();
+                        },
+                        Ok(Message::Unhide) => {
+                            println!("Unhide");
+                            let viewport = egui::ViewportId::ROOT;
+                            ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::Decorations(true));
+                            ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::InnerSize([350.0, 450.0].into()));
+                            ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::OuterPosition(egui::pos2(200.0, 200.0)));
+                            ctx.request_repaint();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
@@ -342,15 +424,15 @@ impl eframe::App for Expurgate {
             }
 
             // and filtering it
-                for (name, pid) in &self.processlist {
-                    if !loosely_check_if_real_app(&pid, &name) || name.as_str() == "expurgate.exe" {
+            for (name, pid) in &self.processlist {
+                if !loosely_check_if_real_app(&pid, &name) || name.as_str() == "expurgate.exe" {
                         self.filter_to_remove.insert(name.clone());
-                    };
-                }
+                };
+            }
 
-                for name in &self.filter_to_remove {
-                    &self.processlist.remove(name.as_str());
-                }
+            for name in &self.filter_to_remove {
+                &self.processlist.remove(name.as_str());
+            }
 
             // handling kill hotkey
             while let Ok(e) = self.hotkey_rx.try_recv() {
@@ -399,7 +481,7 @@ impl eframe::App for Expurgate {
 
             ui.separator();
             ui.label("Tax Evaders:");
-            ui.label("These are closed automatically whenever you please.");
+            ui.label("These are closed whenever you please.");
 
             // if ui.button("Close Notepad politely").clicked() {
             //     close_by_pid(&24588).unwrap();
@@ -445,6 +527,8 @@ impl eframe::App for Expurgate {
 
             // ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
             // });
+
+            ui.separator();
 
             ui.checkbox(&mut self.show_all_processes, "Advanced");
             if (!self.show_all_processes) {

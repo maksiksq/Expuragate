@@ -6,6 +6,7 @@
 - [ ] : find what makes steam unkillable (or rather ... undead? ...)
 - [x] : make it tray 
 - [x] : add actual tray functionality (open, close, quit)
+- [ ] : fix tray jank, tray_icon doesn't have enough api, switch to tao
 - [ ] : and startup
 - [ ] : installer because hell
 - [ ] : handle chrome profiles separately
